@@ -10,10 +10,14 @@
   GMAIL_APP_PASSWORD  Gmail 앱 비밀번호(16자리)
   MAIL_TO             받는 주소 (쉼표로 여러 명 가능)
   DRY_RUN=1           메일 대신 report.html 파일로만 저장
+  ANTHROPIC_API_KEY   있으면 Claude가 섹션별 분석 코멘트를 씁니다 (없으면 코멘트 없이 발송)
+  LLM_COMMENT=0       AI 코멘트 끄기
+  LLM_MODEL           코멘트에 쓸 모델 (기본 claude-opus-5)
 """
 import os
 import re
 import sys
+import json
 import time
 import smtplib
 import datetime as dt
@@ -37,6 +41,9 @@ SIDEWAYS_WINDOW = 20                # 횡보 판단 기간(거래일)
 SIDEWAYS_RANGE_MAX = 0.10           # 기간 내 (최고-최저)/최저 ≤ 10%
 HISTORY_COUNT = 140                 # 받아올 일봉 개수
 WORKERS = 8
+LLM_MODEL = os.environ.get("LLM_MODEL", "claude-opus-5")   # AI 코멘트 모델
+LLM_MAX_TOKENS = 16000
+LLM_WATCHLIST_N = 5                 # AI가 고르는 관심 종목 수
 # ─────────────────────────────────────────────────────────
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -176,7 +183,139 @@ def build_frame(universe):
     return df, latest
 
 
-# ───────── 4. 리포트 ─────────
+# ───────── 4. AI 분석 코멘트 (Claude) ─────────
+COMMENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "market_summary": {"type": "string",
+                           "description": "오늘 표 전체를 훑은 3~5문장 시장 총평"},
+        "gainers": {"type": "string", "description": "등락률 상위 표 코멘트 2~4문장"},
+        "losers": {"type": "string", "description": "등락률 하위 표 코멘트 2~4문장"},
+        "streak": {"type": "string", "description": "연속 상승 표 코멘트 2~4문장"},
+        "sideways": {"type": "string", "description": "고점 대비 하락 후 횡보 표 코멘트 2~4문장"},
+        "watchlist": {
+            "type": "array",
+            "description": f"표 안에서 추가로 살펴볼 만한 종목 최대 {LLM_WATCHLIST_N}개",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "표에 있는 종목명 그대로"},
+                    "reason": {"type": "string", "description": "왜 볼 만한지 1~2문장"},
+                },
+                "required": ["name", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["market_summary", "gainers", "losers", "streak", "sideways", "watchlist"],
+    "additionalProperties": False,
+}
+
+SYSTEM_PROMPT = """당신은 한국 주식 데일리 리포트에 짧은 해설을 붙이는 애널리스트입니다.
+
+- 근거는 오직 사용자가 준 표의 숫자입니다. 표에 없는 뉴스·실적·공시를 아는 것처럼 쓰지 마세요.
+  이유를 모르면 "이유는 표만으로는 알 수 없다"고 쓰면 됩니다.
+- 같은 업종·테마로 묶이는 종목이 여럿 보이면 그 묶음을 짚어 주세요.
+- 상위/하위 표에서는 거래대금이 큰 종목과 작은 종목을 구분해서 보세요. 거래대금이 작은 급등은 그렇게 표시하세요.
+- 연속 상승 표에서는 상승 폭이 과열인지, 거래대금이 받쳐 주는지를 보세요.
+- 횡보 표에서는 하락 폭과 20일 변동폭을 함께 보고, 바닥 다지기인지 아직 판단하기 이른지를 씁니다.
+- 매수·매도 권유는 하지 않습니다. 관찰, 주의점, 확인할 것 위주로 씁니다.
+- 한국어 존댓말, 각 항목은 지정된 문장 수를 지킵니다. 종목명은 표에 있는 그대로 씁니다.
+"""
+
+
+def _rows_text(df, fields):
+    """LLM에 넘길 표를 한 줄에 한 종목씩 짧은 텍스트로 만든다."""
+    lines = []
+    for _, r in df.iterrows():
+        parts = [f"{r['name']}({r['market']})", f"종가 {r['close']:,.0f}"]
+        parts += [fn(r) for fn in fields]
+        parts.append(f"거래대금 {r['value']/1e8:,.0f}억")
+        lines.append(" | ".join(parts))
+    return "\n".join(lines) if lines else "(없음)"
+
+
+def build_llm_prompt(df, latest, sec):
+    gainers, losers, streak, side = sec["gainers"], sec["losers"], sec["streak"], sec["side"]
+    chg = lambda r: f"등락 {r['chg']*100:+.2f}%"
+    return f"""기준 거래일: {latest:%Y-%m-%d}
+분석 종목 {len(df):,}개 (코스피·코스닥, 거래대금 {MIN_TRADING_VALUE/1e8:,.0f}억 이상, ETF·우선주·스팩 제외)
+전체 종목 등락률 중앙값 {df['chg'].median()*100:+.2f}%, 상승 {int((df['chg'] > 0).sum())}개 / 하락 {int((df['chg'] < 0).sum())}개
+
+[1. 등락률 상위 {len(gainers)}]
+{_rows_text(gainers, [chg])}
+
+[2. 등락률 하위 {len(losers)}]
+{_rows_text(losers, [chg])}
+
+[3. {STREAK_DAYS}거래일 이상 연속 상승 (전체 {int((df['streak'] >= STREAK_DAYS).sum())}개 중 상위 {len(streak)})]
+{_rows_text(streak, [lambda r: f"연속 {r['streak']}일", lambda r: f"{STREAK_DAYS}일 수익률 {r['ret_n']*100:+.2f}%", chg])}
+
+[4. {HIGH_LOOKBACK}거래일 고가 대비 -{DRAWDOWN_MIN*100:.0f}% 이상 하락 후 횡보 (전체 {int(df['sideways'].sum())}개 중 상위 {len(side)})]
+{_rows_text(side, [lambda r: f"6개월 고가 {r['high6m']:,.0f}", lambda r: f"고가대비 {-r['drawdown']*100:.1f}%", lambda r: f"20일 변동폭 {r['range20']*100:.1f}%"])}
+
+위 네 표를 보고 시장 총평, 표별 코멘트, 관심 종목 최대 {LLM_WATCHLIST_N}개를 JSON으로 써 주세요."""
+
+
+def llm_comments(df, latest, sec):
+    """Claude에게 표를 보여주고 섹션별 코멘트를 받는다. 실패하면 None (리포트는 코멘트 없이 나감)."""
+    if os.environ.get("LLM_COMMENT") == "0":
+        print("[info] LLM_COMMENT=0 → AI 코멘트 생략", file=sys.stderr)
+        return None
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print("[info] ANTHROPIC_API_KEY 없음 → AI 코멘트 생략", file=sys.stderr)
+        return None
+    import anthropic
+
+    client = anthropic.Anthropic()
+    prompt = build_llm_prompt(df, latest, sec)
+    try:
+        resp = client.beta.messages.create(
+            model=LLM_MODEL,
+            max_tokens=LLM_MAX_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+            output_config={"format": {"type": "json_schema", "schema": COMMENT_SCHEMA}},
+            # 안전 정책으로 거절되면 서버가 다른 모델로 같은 요청을 다시 실행
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+        )
+    except anthropic.AuthenticationError:
+        print("[warn] ANTHROPIC_API_KEY가 잘못됨 → AI 코멘트 생략", file=sys.stderr)
+        return None
+    except anthropic.RateLimitError:
+        print("[warn] Anthropic 사용량 한도 초과 → AI 코멘트 생략", file=sys.stderr)
+        return None
+    except anthropic.APIStatusError as e:
+        print(f"[warn] Anthropic API 오류 {e.status_code}: {e.message} → AI 코멘트 생략", file=sys.stderr)
+        return None
+    except anthropic.APIConnectionError as e:
+        print(f"[warn] Anthropic 접속 실패: {e} → AI 코멘트 생략", file=sys.stderr)
+        return None
+
+    if resp.stop_reason == "refusal":
+        print("[warn] 모델이 응답을 거절함 → AI 코멘트 생략", file=sys.stderr)
+        return None
+    if resp.stop_reason == "max_tokens":
+        print("[warn] AI 코멘트가 max_tokens에서 잘림 → 생략", file=sys.stderr)
+        return None
+    text = next((b.text for b in resp.content if b.type == "text"), None)
+    if not text:
+        print("[warn] AI 응답에 텍스트 없음 → 생략", file=sys.stderr)
+        return None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        print(f"[warn] AI 응답 JSON 파싱 실패: {e} → 생략", file=sys.stderr)
+        return None
+    u = resp.usage
+    print(f"AI 코멘트 완료 ({resp.model}, 입력 {u.input_tokens:,} / 출력 {u.output_tokens:,} 토큰)",
+          file=sys.stderr)
+    data["model"] = resp.model
+    return data
+
+
+# ───────── 5. 리포트 ─────────
 def fmt_table(df, cols):
     if df.empty:
         return "<p style='color:#888'>해당 종목 없음</p>"
@@ -216,13 +355,46 @@ BASE_COLS = [
 VALUE_COL = ("거래대금(억)", lambda r: f"{r['value']/1e8:,.0f}")
 
 
-def make_report(df, latest):
-    gainers = df.sort_values("chg", ascending=False).head(TOP_N_MOVERS)
-    losers = df.sort_values("chg").head(TOP_N_MOVERS)
-    streak = (df[df["streak"] >= STREAK_DAYS]
-              .sort_values("ret_n", ascending=False).head(TOP_N_STREAK))
-    side = (df[df["sideways"]]
-            .sort_values("drawdown", ascending=False).head(TOP_N_SIDEWAYS))
+def select_sections(df):
+    """리포트 네 표에 들어갈 종목을 고른다. HTML과 AI 코멘트가 같은 표를 보도록 한 곳에서 계산."""
+    return {
+        "gainers": df.sort_values("chg", ascending=False).head(TOP_N_MOVERS),
+        "losers": df.sort_values("chg").head(TOP_N_MOVERS),
+        "streak": (df[df["streak"] >= STREAK_DAYS]
+                   .sort_values("ret_n", ascending=False).head(TOP_N_STREAK)),
+        "side": (df[df["sideways"]]
+                 .sort_values("drawdown", ascending=False).head(TOP_N_SIDEWAYS)),
+    }
+
+
+def esc(s):
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def ai_box(comments):
+    """리포트 맨 위 AI 총평 + 관심 종목 상자."""
+    if not comments:
+        return ""
+    items = "".join(f"<li style='margin:2px 0'><b>{esc(w['name'])}</b> — {esc(w['reason'])}</li>"
+                    for w in comments.get("watchlist", []))
+    watch = (f"<p style='margin:10px 0 2px;font-weight:bold'>관심 종목</p>"
+             f"<ul style='margin:0;padding-left:18px'>{items}</ul>") if items else ""
+    return (f"<div style='background:#f4f6fa;border-left:4px solid #4a6fd6;padding:12px 14px;"
+            f"margin:16px 0;font-size:13px;line-height:1.6'>"
+            f"<p style='margin:0 0 4px;font-weight:bold'>🤖 AI 총평</p>"
+            f"<p style='margin:0'>{esc(comments['market_summary'])}</p>{watch}</div>")
+
+
+def ai_note(comments, key):
+    """섹션 표 위에 붙는 한 문단 코멘트."""
+    if not comments or not comments.get(key):
+        return ""
+    return (f"<p style='font-size:13px;line-height:1.6;background:#fafafa;border:1px solid #eee;"
+            f"padding:8px 10px;margin:0 0 8px'>{esc(comments[key])}</p>")
+
+
+def make_report(df, latest, sec, comments=None):
+    gainers, losers, streak, side = sec["gainers"], sec["losers"], sec["streak"], sec["side"]
 
     movers_cols = BASE_COLS + [("등락률", lambda r: pct(r["chg"])), VALUE_COL]
     streak_cols = BASE_COLS + [("연속상승(일)", lambda r: r["streak"]),
@@ -234,22 +406,24 @@ def make_report(df, latest):
                              VALUE_COL]
 
     d = latest.strftime("%Y-%m-%d (%a)")
-    sec = lambda t, s, body: (f"<h2 style='font-size:16px;margin:28px 0 4px'>{t}</h2>"
-                              f"<p style='color:#666;font-size:12px;margin:0 0 8px'>{s}</p>{body}")
+    sec_html = lambda t, s, key, body: (
+        f"<h2 style='font-size:16px;margin:28px 0 4px'>{t}</h2>"
+        f"<p style='color:#666;font-size:12px;margin:0 0 8px'>{s}</p>{ai_note(comments, key)}{body}")
     html = f"""
 <div style="font-family:'Malgun Gothic',Apple SD Gothic Neo,sans-serif;color:#222;max-width:760px">
 <h1 style="font-size:20px;margin-bottom:4px">📈 한국 주식 데일리 리포트</h1>
 <p style="color:#666;margin-top:0">기준 거래일: <b>{d}</b> · 분석 종목 {len(df):,}개
 (코스피·코스닥, 거래대금 {MIN_TRADING_VALUE/1e8:,.0f}억 이상, ETF·우선주·스팩 제외)</p>
-{sec(f"1. 등락률 상위 {TOP_N_MOVERS}", "전일 종가 대비", fmt_table(gainers, movers_cols))}
-{sec(f"2. 등락률 하위 {TOP_N_MOVERS}", "전일 종가 대비", fmt_table(losers, movers_cols))}
-{sec(f"3. {STREAK_DAYS}거래일 이상 연속 상승 ({len(df[df['streak'] >= STREAK_DAYS])}개 중 상위 {len(streak)})",
-     f"매일 종가가 전일보다 높은 종목, {STREAK_DAYS}일 누적 수익률 순", fmt_table(streak, streak_cols))}
-{sec(f"4. 6개월 고가 대비 -{DRAWDOWN_MIN*100:.0f}% 이상 하락 후 횡보 ({len(df[df['sideways']])}개)",
+{ai_box(comments)}
+{sec_html(f"1. 등락률 상위 {TOP_N_MOVERS}", "전일 종가 대비", "gainers", fmt_table(gainers, movers_cols))}
+{sec_html(f"2. 등락률 하위 {TOP_N_MOVERS}", "전일 종가 대비", "losers", fmt_table(losers, movers_cols))}
+{sec_html(f"3. {STREAK_DAYS}거래일 이상 연속 상승 ({len(df[df['streak'] >= STREAK_DAYS])}개 중 상위 {len(streak)})",
+     f"매일 종가가 전일보다 높은 종목, {STREAK_DAYS}일 누적 수익률 순", "streak", fmt_table(streak, streak_cols))}
+{sec_html(f"4. 6개월 고가 대비 -{DRAWDOWN_MIN*100:.0f}% 이상 하락 후 횡보 ({len(df[df['sideways']])}개)",
      f"최근 {HIGH_LOOKBACK}거래일 최고가 대비 {DRAWDOWN_MIN*100:.0f}% 이상 하락 + 최근 {SIDEWAYS_WINDOW}거래일 "
-     f"(최고-최저)/최저 ≤ {SIDEWAYS_RANGE_MAX*100:.0f}%, 하락률 순", fmt_table(side, side_cols))}
+     f"(최고-최저)/최저 ≤ {SIDEWAYS_RANGE_MAX*100:.0f}%, 하락률 순", "sideways", fmt_table(side, side_cols))}
 <p style="color:#999;font-size:11px;margin-top:32px">데이터: 네이버 금융 · 거래대금은 종가×거래량 근사치 ·
-투자 권유가 아닌 참고용 자동 리포트입니다.</p>
+{"AI 코멘트: " + esc(comments["model"]) + " · " if comments else ""}투자 권유가 아닌 참고용 자동 리포트입니다.</p>
 </div>"""
     subject = (f"[주식리포트] {latest:%m/%d} 상승1위 {gainers.iloc[0]['name']} "
                f"{gainers.iloc[0]['chg']*100:+.1f}% · 연속상승 {len(df[df['streak'] >= STREAK_DAYS])} · "
@@ -274,7 +448,9 @@ def main():
     uni = list_universe()
     print(f"대상 종목 {len(uni)}개, 일봉 수집 시작", file=sys.stderr)
     df, latest = build_frame(uni)
-    subject, html = make_report(df, latest)
+    sec = select_sections(df)
+    comments = llm_comments(df, latest, sec)
+    subject, html = make_report(df, latest, sec, comments)
     with open("report.html", "w", encoding="utf-8") as f:
         f.write(html)
     print(f"{subject}  ({time.time()-t0:.0f}s)")
