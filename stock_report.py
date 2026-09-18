@@ -374,11 +374,18 @@ def _comments_via_claude_code(prompt):
         print(f"[warn] claude -p 결과에 structured_output 없음: {str(out.get('result'))[:300]} → 생략",
               file=sys.stderr)
         return None
-    models = list((out.get("modelUsage") or {}).keys())
-    model = models[0] if models else (LLM_MODEL or "claude-code")
+    # modelUsage 에는 제목 생성 등 부수 작업에 쓰인 작은 모델도 섞여 있으므로
+    # 출력 토큰이 가장 많은 모델을 코멘트를 쓴 모델로 본다.
+    mu = out.get("modelUsage") or {}
+    def _out_tokens(m):
+        v = mu.get(m) or {}
+        return v.get("outputTokens") or v.get("output_tokens") or 0
+    model = max(mu, key=_out_tokens) if mu else (LLM_MODEL or "claude-code")
+    used = ", ".join(f"{m}: 출력 {_out_tokens(m):,}" for m in sorted(mu, key=_out_tokens, reverse=True))
     u = out.get("usage") or {}
-    print(f"AI 코멘트 완료 (구독 {model}, 입력 {u.get('input_tokens', 0):,} / "
-          f"출력 {u.get('output_tokens', 0):,} 토큰)", file=sys.stderr)
+    inp = sum(u.get(k, 0) or 0 for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+    print(f"AI 코멘트 완료 (구독 {model}, 입력 {inp:,} / 출력 {u.get('output_tokens', 0):,} 토큰; "
+          f"사용 모델 {used or '알 수 없음'})", file=sys.stderr)
     data["model"] = model
     return data
 
