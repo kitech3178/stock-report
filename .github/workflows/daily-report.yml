@@ -1,0 +1,30 @@
+name: 한국주식 데일리 리포트
+
+on:
+  schedule:
+    # 한국시간 월~금 07:30 (UTC 일~목 22:30). 월요일에는 금요일 장 기준 리포트.
+    - cron: "30 22 * * 0-4"
+  workflow_dispatch:   # Actions 탭에서 수동 실행 버튼
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 리포트 생성 및 메일 발송
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_TO: boribab73@gmail.com
+        run: python stock_report.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report
+          path: report.html
