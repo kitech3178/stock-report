@@ -22,7 +22,7 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # 없으면 AI 코멘트 없이 발송
-          MAIL_TO: boribab73@gmail.com
+          MAIL_TO: boribab73@gmail.com,yozosukny0@naver.com   # 쉼표로 여러 명
         run: python stock_report.py
       - uses: actions/upload-artifact@v4
         if: always()
