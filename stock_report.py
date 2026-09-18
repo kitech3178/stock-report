@@ -425,14 +425,17 @@ def make_report(df, latest, sec, comments=None):
 <p style="color:#999;font-size:11px;margin-top:32px">데이터: 네이버 금융 · 거래대금은 종가×거래량 근사치 ·
 {"AI 코멘트: " + esc(comments["model"]) + " · " if comments else ""}투자 권유가 아닌 참고용 자동 리포트입니다.</p>
 </div>"""
-    subject = (f"[주식리포트] {latest:%m/%d} 상승1위 {gainers.iloc[0]['name']} "
-               f"{gainers.iloc[0]['chg']*100:+.1f}% · 연속상승 {len(df[df['streak'] >= STREAK_DAYS])} · "
-               f"횡보 {len(df[df['sideways']])}") if not gainers.empty else f"[주식리포트] {latest:%m/%d}"
+    subject = f"[ {latest:%y}년 {latest:%m}월 {latest:%d}일 - 주식 레포트 ]"
     return subject, html
 
 
 def send_mail(subject, html):
-    user, pw = os.environ["GMAIL_USER"], os.environ["GMAIL_APP_PASSWORD"].replace(" ", "")
+    user = os.environ.get("GMAIL_USER", "").strip()
+    pw = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "")
+    if not user or not pw:
+        sys.exit("[error] GMAIL_USER / GMAIL_APP_PASSWORD 가 비어 있습니다. "
+                 "저장소 Settings → Secrets and variables → Actions 에 등록하세요. "
+                 "(report.html 은 Artifacts 에 저장되어 있습니다)")
     to = [a.strip() for a in os.environ.get("MAIL_TO", user).split(",") if a.strip()]
     msg = MIMEMultipart("alternative")
     msg["Subject"], msg["From"], msg["To"] = subject, user, ", ".join(to)

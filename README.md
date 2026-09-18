@@ -1,6 +1,7 @@
 # 한국 주식 데일리 리포트 에이전트
 
-매주 월~금 아침 8시 45분(한국시간)에 전 거래일 기준 리포트를 boribab73@gmail.com으로 보냅니다.
+매주 월~금 아침 8시 45분(한국시간)에 전 거래일 기준 리포트를 boribab73@gmail.com, yozosukny0@naver.com으로 보냅니다.
+받는 주소는 `.github/workflows/daily-report.yml`의 `MAIL_TO`에서 쉼표로 구분해 바꿀 수 있습니다.
 
 | 섹션 | 기준 |
 |---|---|
