@@ -430,7 +430,12 @@ def make_report(df, latest, sec, comments=None):
 
 
 def send_mail(subject, html):
-    user, pw = os.environ["GMAIL_USER"], os.environ["GMAIL_APP_PASSWORD"].replace(" ", "")
+    user = os.environ.get("GMAIL_USER", "").strip()
+    pw = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "")
+    if not user or not pw:
+        sys.exit("[error] GMAIL_USER / GMAIL_APP_PASSWORD 가 비어 있습니다. "
+                 "저장소 Settings → Secrets and variables → Actions 에 등록하세요. "
+                 "(report.html 은 Artifacts 에 저장되어 있습니다)")
     to = [a.strip() for a in os.environ.get("MAIL_TO", user).split(",") if a.strip()]
     msg = MIMEMultipart("alternative")
     msg["Subject"], msg["From"], msg["To"] = subject, user, ", ".join(to)
