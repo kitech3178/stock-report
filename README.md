@@ -13,7 +13,14 @@
 기준값은 `stock_report.py` 맨 위의 설정값 블록에서 바꿀 수 있습니다.
 
 ### AI 분석 코멘트 (선택)
-`ANTHROPIC_API_KEY`를 등록하면 Claude가 네 표를 읽고 리포트에 코멘트를 붙입니다.
+아래 둘 중 하나를 시크릿으로 등록하면 Claude가 네 표를 읽고 리포트에 코멘트를 붙입니다.
+
+| 시크릿 | 방식 | 비용 |
+|---|---|---|
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Pro/Max 구독. 내 컴퓨터에서 `claude setup-token` 실행 후 나온 토큰 | 구독 한도에서 차감, 추가 결제 없음 |
+| `ANTHROPIC_API_KEY` | 개발자 플랫폼(https://platform.claude.com) API 키 | 크레딧 충전 후 토큰당 과금 |
+
+둘 다 있으면 API 키를 먼저 씁니다. 구독 토큰은 1년 뒤 만료되니 그때 다시 만들어 갱신하세요.
 
 - 맨 위에 **AI 총평**과 **관심 종목** 최대 5개
 - 각 표 위에 2~4문장 코멘트 (업종·테마 묶음, 거래대금이 작은 급등, 과열 여부, 바닥 다지기 판단 등)
@@ -41,6 +48,7 @@
 |---|---|
 | `GMAIL_USER` | 보내는 Gmail 주소 |
 | `GMAIL_APP_PASSWORD` | 1단계에서 받은 16자리 비밀번호 |
+| `CLAUDE_CODE_OAUTH_TOKEN` | (선택) AI 코멘트용. 구독 계정으로 `claude setup-token` 실행해 발급 |
 | `ANTHROPIC_API_KEY` | (선택) AI 코멘트용. https://platform.claude.com 에서 발급 |
 
 ### 4. 테스트
@@ -58,9 +66,10 @@ AI 코멘트 관련 환경변수:
 
 | 변수 | 설명 |
 |---|---|
-| `ANTHROPIC_API_KEY` | 있으면 AI 코멘트 생성 |
+| `ANTHROPIC_API_KEY` | 있으면 API로 AI 코멘트 생성 |
+| `CLAUDE_CODE_OAUTH_TOKEN` | API 키가 없을 때 구독(Claude Code CLI)으로 AI 코멘트 생성. 로컬에서는 `claude` 명령이 설치돼 있어야 함 |
 | `LLM_COMMENT=0` | 키가 있어도 AI 코멘트 끄기 |
-| `LLM_MODEL` | 사용할 모델. 기본 `claude-opus-5` |
+| `LLM_MODEL` | 사용할 모델. 비우면 API는 `claude-opus-5`, 구독은 Claude Code 기본 모델 |
 
 ## 참고
 - GitHub의 예약 실행은 부하에 따라 10~30분 늦게 시작될 수 있습니다.

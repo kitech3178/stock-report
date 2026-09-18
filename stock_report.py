@@ -10,14 +10,18 @@
   GMAIL_APP_PASSWORD  Gmail 앱 비밀번호(16자리)
   MAIL_TO             받는 주소 (쉼표로 여러 명 가능)
   DRY_RUN=1           메일 대신 report.html 파일로만 저장
-  ANTHROPIC_API_KEY   있으면 Claude가 섹션별 분석 코멘트를 씁니다 (없으면 코멘트 없이 발송)
-  LLM_COMMENT=0       AI 코멘트 끄기
-  LLM_MODEL           코멘트에 쓸 모델 (기본 claude-opus-5)
+  ANTHROPIC_API_KEY        있으면 Claude API(SDK)로 섹션별 분석 코멘트를 씁니다
+  CLAUDE_CODE_OAUTH_TOKEN  API 키가 없을 때 Claude 구독(claude setup-token)으로 코멘트를 씁니다
+                           (둘 다 없으면 코멘트 없이 발송)
+  LLM_COMMENT=0            AI 코멘트 끄기
+  LLM_MODEL                코멘트에 쓸 모델 (API 기본 claude-opus-5, 구독은 Claude Code 기본값)
 """
 import os
 import re
 import sys
 import json
+import shutil
+import subprocess
 import time
 import smtplib
 import datetime as dt
@@ -41,8 +45,10 @@ SIDEWAYS_WINDOW = 20                # 횡보 판단 기간(거래일)
 SIDEWAYS_RANGE_MAX = 0.10           # 기간 내 (최고-최저)/최저 ≤ 10%
 HISTORY_COUNT = 140                 # 받아올 일봉 개수
 WORKERS = 8
-LLM_MODEL = os.environ.get("LLM_MODEL", "claude-opus-5")   # AI 코멘트 모델
+LLM_MODEL = os.environ.get("LLM_MODEL")   # 비우면 API는 claude-opus-5, 구독은 Claude Code 기본 모델
+LLM_API_DEFAULT_MODEL = "claude-opus-5"
 LLM_MAX_TOKENS = 16000
+LLM_CLI_TIMEOUT = 600                     # 구독(claude -p) 호출 제한 시간(초)
 LLM_WATCHLIST_N = 5                 # AI가 고르는 관심 종목 수
 # ─────────────────────────────────────────────────────────
 
@@ -258,20 +264,32 @@ def build_llm_prompt(df, latest, sec):
 
 
 def llm_comments(df, latest, sec):
-    """Claude에게 표를 보여주고 섹션별 코멘트를 받는다. 실패하면 None (리포트는 코멘트 없이 나감)."""
+    """Claude에게 표를 보여주고 섹션별 코멘트를 받는다. 실패하면 None (리포트는 코멘트 없이 나감).
+
+    ANTHROPIC_API_KEY 가 있으면 API(SDK), 없고 CLAUDE_CODE_OAUTH_TOKEN 이 있으면
+    Claude Code CLI(구독)로 호출한다.
+    """
     if os.environ.get("LLM_COMMENT") == "0":
         print("[info] LLM_COMMENT=0 → AI 코멘트 생략", file=sys.stderr)
         return None
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("[info] ANTHROPIC_API_KEY 없음 → AI 코멘트 생략", file=sys.stderr)
-        return None
+    prompt = build_llm_prompt(df, latest, sec)
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return _comments_via_api(prompt)
+    if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        return _comments_via_claude_code(prompt)
+    print("[info] ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN 없음 → AI 코멘트 생략", file=sys.stderr)
+    return None
+
+
+def _comments_via_api(prompt):
+    """Anthropic SDK 경로 (API 키, 크레딧 과금)."""
     import anthropic
 
     client = anthropic.Anthropic()
-    prompt = build_llm_prompt(df, latest, sec)
+    model = LLM_MODEL or LLM_API_DEFAULT_MODEL
     try:
         resp = client.beta.messages.create(
-            model=LLM_MODEL,
+            model=model,
             max_tokens=LLM_MAX_TOKENS,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -309,9 +327,59 @@ def llm_comments(df, latest, sec):
         print(f"[warn] AI 응답 JSON 파싱 실패: {e} → 생략", file=sys.stderr)
         return None
     u = resp.usage
-    print(f"AI 코멘트 완료 ({resp.model}, 입력 {u.input_tokens:,} / 출력 {u.output_tokens:,} 토큰)",
+    print(f"AI 코멘트 완료 (API {resp.model}, 입력 {u.input_tokens:,} / 출력 {u.output_tokens:,} 토큰)",
           file=sys.stderr)
     data["model"] = resp.model
+    return data
+
+
+def _comments_via_claude_code(prompt):
+    """Claude Code CLI 경로 (구독 토큰 CLAUDE_CODE_OAUTH_TOKEN, 구독 한도 차감).
+
+    --bare 는 OAuth 토큰을 읽지 않으므로 쓰지 않는다. --tools "" 로 도구를 모두 끄고
+    --json-schema 로 구조화 출력을 받는다(결과의 structured_output 필드).
+    """
+    exe = shutil.which("claude")
+    if not exe:
+        print("[warn] claude 명령을 찾을 수 없음 (Claude Code CLI 미설치) → AI 코멘트 생략", file=sys.stderr)
+        return None
+    cmd = [exe, "-p", prompt,
+           "--system-prompt", SYSTEM_PROMPT,
+           "--tools", "",
+           "--permission-mode", "dontAsk",
+           "--no-session-persistence",
+           "--output-format", "json",
+           "--json-schema", json.dumps(COMMENT_SCHEMA, ensure_ascii=False)]
+    if LLM_MODEL:
+        cmd += ["--model", LLM_MODEL]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=LLM_CLI_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        print(f"[warn] claude -p 가 {LLM_CLI_TIMEOUT}초 안에 끝나지 않음 → AI 코멘트 생략", file=sys.stderr)
+        return None
+    if proc.returncode != 0 and not proc.stdout.strip():
+        print(f"[warn] claude -p 실패 (exit {proc.returncode}): {proc.stderr.strip()[:500]} → AI 코멘트 생략",
+              file=sys.stderr)
+        return None
+    try:
+        out = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        print(f"[warn] claude -p 출력 JSON 파싱 실패: {e}: {proc.stdout[:300]!r} → 생략", file=sys.stderr)
+        return None
+    if out.get("is_error"):
+        print(f"[warn] claude -p 오류: {str(out.get('result'))[:500]} → AI 코멘트 생략", file=sys.stderr)
+        return None
+    data = out.get("structured_output")
+    if not isinstance(data, dict):
+        print(f"[warn] claude -p 결과에 structured_output 없음: {str(out.get('result'))[:300]} → 생략",
+              file=sys.stderr)
+        return None
+    models = list((out.get("modelUsage") or {}).keys())
+    model = models[0] if models else (LLM_MODEL or "claude-code")
+    u = out.get("usage") or {}
+    print(f"AI 코멘트 완료 (구독 {model}, 입력 {u.get('input_tokens', 0):,} / "
+          f"출력 {u.get('output_tokens', 0):,} 토큰)", file=sys.stderr)
+    data["model"] = model
     return data
 
 
