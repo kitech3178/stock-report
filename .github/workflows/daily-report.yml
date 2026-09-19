@@ -28,7 +28,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}             # API 키 (크레딧 과금)
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # 구독 토큰 (claude setup-token)
           # 둘 다 없으면 AI 코멘트 없이 발송. 둘 다 있으면 API 키 우선.
-          MAIL_TO: boribab73@gmail.com,dongkizz@naver.com  # 쉼표로 여러 명
+          MAIL_TO: boribab73@gmail.com,dongkizz@naver.com,yozosukny0@naver.com # 쉼표로 여러 명
         run: python stock_report.py
       - uses: actions/upload-artifact@v4
         if: always()
