@@ -1,7 +1,12 @@
 name: 탐색 스크립트 실행 (수동)
 
 on:
-  workflow_dispatch:   # 데이터 소스 조사용. 예약 실행 없음, 메일 발송 없음.
+  workflow_dispatch:   # 데이터 소스 조사·테스트용. 예약 실행 없음, 메일 발송 없음.
+    inputs:
+      command:
+        description: "실행할 명령"
+        default: "python tools/explore.py"
+        required: false
 
 jobs:
   explore:
@@ -12,5 +17,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install requests pandas
-      - run: python tools/explore.py
+      - run: pip install -r requirements.txt
+      - run: ${{ inputs.command || 'python tools/explore.py' }}
+        env:
+          DRY_RUN: "1"
+          LLM_COMMENT: "0"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: explore-output
+          path: report.html
+          if-no-files-found: ignore
