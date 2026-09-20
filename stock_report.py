@@ -168,7 +168,13 @@ def fetch_trend(code, days=INVESTOR_DAYS):
 
 def fetch_sector_map():
     """네이버 업종 분류: {종목코드: 업종명}. 업종 목록 1회 + 업종별 종목 목록."""
-    groups = _get("https://m.stock.naver.com/api/stocks/industry?page=1&pageSize=200").json()["groups"]
+    groups, page = [], 1
+    while True:  # pageSize 는 100 까지만 허용
+        d = _get(f"https://m.stock.naver.com/api/stocks/industry?page={page}&pageSize=100").json()
+        groups += d.get("groups", [])
+        if page * 100 >= (d.get("totalCount") or 0) or not d.get("groups"):
+            break
+        page += 1
     mapping = {}
     for g in groups:
         page = 1
