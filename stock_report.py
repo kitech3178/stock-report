@@ -8,7 +8,8 @@
 환경변수
   GMAIL_USER          보내는 Gmail 주소
   GMAIL_APP_PASSWORD  Gmail 앱 비밀번호(16자리)
-  MAIL_TO             받는 주소 (쉼표로 여러 명 가능)
+  MAIL_TO             받는 사람 주소 (쉼표로 여러 명 가능, 메일 헤더에 보임)
+  MAIL_BCC            숨은 참조 주소 (쉼표로 여러 명 가능, 서로에게 보이지 않음)
   DRY_RUN=1           메일 대신 report.html 파일로만 저장
   ANTHROPIC_API_KEY        있으면 Claude API(SDK)로 섹션별 분석 코멘트를 씁니다
   CLAUDE_CODE_OAUTH_TOKEN  API 키가 없을 때 Claude 구독(claude setup-token)으로 코멘트를 씁니다
@@ -511,14 +512,17 @@ def send_mail(subject, html):
         sys.exit("[error] GMAIL_USER / GMAIL_APP_PASSWORD 가 비어 있습니다. "
                  "저장소 Settings → Secrets and variables → Actions 에 등록하세요. "
                  "(report.html 은 Artifacts 에 저장되어 있습니다)")
-    to = [a.strip() for a in os.environ.get("MAIL_TO", user).split(",") if a.strip()]
+    split = lambda v: [a.strip() for a in v.split(",") if a.strip()]
+    to = split(os.environ.get("MAIL_TO", user))
+    bcc = [a for a in split(os.environ.get("MAIL_BCC", "")) if a not in to]
     msg = MIMEMultipart("alternative")
     msg["Subject"], msg["From"], msg["To"] = subject, user, ", ".join(to)
+    # 숨은 참조는 헤더에 넣지 않고 봉투(sendmail 수신자)에만 넣는다
     msg.attach(MIMEText(html, "html", "utf-8"))
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
         s.login(user, pw)
-        s.sendmail(user, to, msg.as_string())
-    print(f"메일 발송 완료 → {to}")
+        s.sendmail(user, to + bcc, msg.as_string())
+    print(f"메일 발송 완료 → 받는 사람 {to}" + (f", 숨은 참조 {bcc}" if bcc else ""))
 
 
 def main():

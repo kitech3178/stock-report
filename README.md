@@ -1,7 +1,7 @@
 # 한국 주식 데일리 리포트 에이전트
 
 매주 월~금 아침 8시 45분(한국시간)에 전 거래일 기준 리포트를 boribab73@gmail.com, yozosukny0@naver.com으로 보냅니다.
-받는 주소는 `.github/workflows/daily-report.yml`의 `MAIL_TO`에서 쉼표로 구분해 바꿀 수 있습니다.
+받는 주소는 `.github/workflows/daily-report.yml`에서 바꿀 수 있습니다. `MAIL_TO`는 받는 사람(헤더에 보임), `MAIL_BCC`는 숨은 참조(서로에게 보이지 않음)이고 둘 다 쉼표로 여러 명을 적을 수 있습니다.
 
 | 섹션 | 기준 |
 |---|---|
