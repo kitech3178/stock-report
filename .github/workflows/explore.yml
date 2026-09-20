@@ -1,0 +1,16 @@
+name: 탐색 스크립트 실행 (수동)
+
+on:
+  workflow_dispatch:   # 데이터 소스 조사용. 예약 실행 없음, 메일 발송 없음.
+
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests pandas
+      - run: python tools/explore.py
