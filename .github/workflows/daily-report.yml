@@ -3,7 +3,7 @@ name: 한국주식 데일리 리포트
 on:
   schedule:
     # 한국시간 월~금 08:45 (UTC 일~목 23:45). 월요일에는 금요일 장 기준 리포트.
-    - cron: "45 23 * * 0-4"
+    - cron: "40 23 * * 0-4"
   workflow_dispatch:   # Actions 탭에서 수동 실행 버튼
 
 jobs:
