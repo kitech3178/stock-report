@@ -1,11 +1,11 @@
-name: 탐색 스크립트 실행 (수동)
+name: 드라이런 실행 (수동)
 
 on:
-  workflow_dispatch:   # 데이터 소스 조사·테스트용. 예약 실행 없음, 메일 발송 없음.
+  workflow_dispatch:   # 메일 없이 리포트만 생성. 예약 실행 없음.
     inputs:
       command:
         description: "실행할 명령"
-        default: "python tools/explore.py"
+        default: "python stock_report.py && python tools/show_report.py"
         required: false
 
 jobs:
@@ -18,13 +18,13 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt
-      - run: ${{ inputs.command || 'python tools/explore.py' }}
+      - run: ${{ inputs.command || 'python stock_report.py && python tools/show_report.py' }}
         env:
           DRY_RUN: "1"
           LLM_COMMENT: "0"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: explore-output
+          name: report
           path: report.html
           if-no-files-found: ignore

@@ -102,7 +102,8 @@ def list_market_naver(market):
         for s in stocks:
             rows.append({"code": s.get("itemCode"), "name": s.get("stockName"),
                          "market": market, "type": s.get("stockEndType", "stock"),
-                         "mcap": _num(s.get("marketValue")) * 1e6,             # 백만원 → 원
+                         # 네이버 단위: marketValue 는 억원, accumulatedTradingValue 는 백만원
+                         "mcap": _num(s.get("marketValue")) * 1e8,
                          "tvalue": _num(s.get("accumulatedTradingValue")) * 1e6})
         total = data.get("totalCount") or 0
         if page * 100 >= total:
