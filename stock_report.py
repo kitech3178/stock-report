@@ -13,6 +13,7 @@
   MAIL_TO             받는 사람 주소 (쉼표로 여러 명 가능, 메일 헤더에 보임)
   MAIL_BCC            숨은 참조 주소 (쉼표로 여러 명 가능, 서로에게 보이지 않음)
   DRY_RUN=1           메일 대신 report.html 파일로만 저장
+  ONLY_ON_TRADING_DAY=1  오늘(KST)이 거래일이 아니면(주말·공휴일·휴장) 아무것도 하지 않고 종료
   ANTHROPIC_API_KEY        있으면 Claude API(SDK)로 섹션별 분석 코멘트를 씁니다
   CLAUDE_CODE_OAUTH_TOKEN  API 키가 없을 때 Claude 구독(claude setup-token)으로 코멘트를 씁니다
                            (둘 다 없으면 코멘트 없이 발송)
@@ -187,6 +188,20 @@ def fetch_sector_map():
                 break
             page += 1
     return mapping
+
+
+KST = dt.timezone(dt.timedelta(hours=9))
+
+
+def latest_trading_date(code="005930"):
+    """네이버 일봉의 마지막 거래일. 휴장일이면 직전 거래일이 나온다."""
+    return fetch_daily(code, count=5)["date"].max().date()
+
+
+def is_trading_day_today():
+    today = dt.datetime.now(KST).date()
+    last = latest_trading_date()
+    return last == today, today, last
 
 
 # ───────── 3. 조건 분석 ─────────
@@ -784,6 +799,12 @@ def send_mail(subject, html):
 
 def main():
     t0 = time.time()
+    if os.environ.get("ONLY_ON_TRADING_DAY") == "1":
+        ok, today, last = is_trading_day_today()
+        if not ok:
+            print(f"[info] 오늘 {today}(KST)은 거래일이 아닙니다 (마지막 거래일 {last}). 리포트를 만들지 않습니다.")
+            return
+        print(f"거래일 확인: {today}", file=sys.stderr)
     uni = list_universe()
     print(f"대상 종목 {len(uni)}개, 일봉 수집 시작", file=sys.stderr)
     df, latest = build_frame(uni)
