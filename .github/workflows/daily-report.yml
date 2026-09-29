@@ -2,9 +2,10 @@ name: 한국주식 데일리 리포트
 
 on:
   schedule:
-    # 한국시간 월~금 20:00 (UTC 같은 날 11:00). 그날 장 마감(15:30) 기준 리포트.
+    # 한국시간 월~금 22:05 (UTC 같은 날 13:05). 그날 장 마감(15:30) 기준 리포트.
+    # 정각(:00)은 GitHub 예약이 몰려 몇 시간씩 늦어질 수 있어 :05 로 둠.
     # 공휴일·임시휴장은 스크립트가 마지막 거래일을 확인해 건너뜀 (ONLY_ON_TRADING_DAY).
-    - cron: "0 11 * * 1-5"
+    - cron: "5 13 * * 1-5"
   workflow_dispatch:   # Actions 탭에서 수동 실행 버튼
 
 jobs:
@@ -31,6 +32,7 @@ jobs:
           # 둘 다 없으면 AI 코멘트 없이 발송. 둘 다 있으면 API 키 우선.
           # 예약 실행일 때만 거래일 검사. 수동 실행(Run workflow)은 항상 보냄.
           ONLY_ON_TRADING_DAY: ${{ github.event_name == 'schedule' && '1' || '0' }}
+          SCHEDULE_HOUR_KST: "22"   # 위 cron 의 한국시간 '시'. 지연으로 자정을 넘겨도 예약된 날짜로 판단
           MAIL_TO: boribab73@gmail.com                        # 받는 사람 (헤더에 보임, 쉼표로 여러 명)
           MAIL_BCC: dongkizz@naver.com,yozosukny0@naver.com,choiandu@naver.com,onekibi@naver.com  # 숨은 참조 (서로에게 안 보임, 쉼표로 여러 명)
         run: python stock_report.py
