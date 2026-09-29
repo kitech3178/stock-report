@@ -13,7 +13,9 @@
   MAIL_TO             받는 사람 주소 (쉼표로 여러 명 가능, 메일 헤더에 보임)
   MAIL_BCC            숨은 참조 주소 (쉼표로 여러 명 가능, 서로에게 보이지 않음)
   DRY_RUN=1           메일 대신 report.html 파일로만 저장
-  ONLY_ON_TRADING_DAY=1  오늘(KST)이 거래일이 아니면(주말·공휴일·휴장) 아무것도 하지 않고 종료
+  ONLY_ON_TRADING_DAY=1  예약된 날짜(KST)가 거래일이 아니면(주말·공휴일·휴장) 아무것도 하지 않고 종료
+  SCHEDULE_HOUR_KST      예약 실행 시각(시, KST). GitHub이 예약을 몇 시간 늦게 시작해 자정을 넘겨도
+                         "예약된 날짜"를 기준으로 판단하기 위해 사용 (기본 22)
   ANTHROPIC_API_KEY        있으면 Claude API(SDK)로 섹션별 분석 코멘트를 씁니다
   CLAUDE_CODE_OAUTH_TOKEN  API 키가 없을 때 Claude 구독(claude setup-token)으로 코멘트를 씁니다
                            (둘 다 없으면 코멘트 없이 발송)
@@ -198,10 +200,18 @@ def latest_trading_date(code="005930"):
     return fetch_daily(code, count=5)["date"].max().date()
 
 
+def scheduled_date(now=None):
+    """이 실행이 '어느 날짜의 저녁 리포트'인지. 예약 시각(SCHEDULE_HOUR_KST) 이후면 오늘,
+    그 전(= 지연으로 자정을 넘긴 경우)이면 전날."""
+    now = now or dt.datetime.now(KST)
+    hour = int(os.environ.get("SCHEDULE_HOUR_KST", "22"))
+    return (now - dt.timedelta(hours=hour)).date()
+
+
 def is_trading_day_today():
-    today = dt.datetime.now(KST).date()
+    target = scheduled_date()
     last = latest_trading_date()
-    return last == today, today, last
+    return last == target, target, last
 
 
 # ───────── 3. 조건 분석 ─────────
@@ -802,9 +812,9 @@ def main():
     if os.environ.get("ONLY_ON_TRADING_DAY") == "1":
         ok, today, last = is_trading_day_today()
         if not ok:
-            print(f"[info] 오늘 {today}(KST)은 거래일이 아닙니다 (마지막 거래일 {last}). 리포트를 만들지 않습니다.")
+            print(f"[info] 예약된 날짜 {today}(KST)은 거래일이 아닙니다 (마지막 거래일 {last}). 리포트를 만들지 않습니다.")
             return
-        print(f"거래일 확인: {today}", file=sys.stderr)
+        print(f"거래일 확인: {today} (현재 {dt.datetime.now(KST):%Y-%m-%d %H:%M} KST)", file=sys.stderr)
     uni = list_universe()
     print(f"대상 종목 {len(uni)}개, 일봉 수집 시작", file=sys.stderr)
     df, latest = build_frame(uni)
