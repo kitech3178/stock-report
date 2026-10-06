@@ -336,15 +336,21 @@ def investor_flows(universe, sector_map):
     keep = daily_df["date"].nlargest(INVESTOR_DAYS)
     daily_df = daily_df[daily_df["date"].isin(keep)].reset_index(drop=True)
 
-    def top_names(g, col, sign):
+    def top_list(g, col, sign):
+        """섹터 안에서 해당 방향으로 금액이 큰 종목 [(code, name, amt), ...]"""
         gg = g[g[col] * sign > 0].assign(v=lambda x: x[col] * sign).sort_values("v", ascending=False)
-        return ", ".join(f"{r['name']}({r[col]/1e8:+,.0f}억)" for _, r in gg.head(SECTOR_TOP_STOCKS).iterrows())
+        return [(r["code"], r["name"], r[col]) for _, r in gg.head(SECTOR_TOP_STOCKS).iterrows()]
+
+    def as_text(lst):
+        return ", ".join(f"{n}({a/1e8:+,.0f}억)" for _, n, a in lst)
 
     rows = []
     for name, g in st.groupby("sector"):
+        tops = {k: top_list(g, c, sg) for k, c, sg in (("frg_buy", "frg", 1), ("frg_sell", "frg", -1),
+                                                      ("org_buy", "org", 1), ("org_sell", "org", -1))}
         rows.append({"sector": name, "n": len(g), "frg": g["frg"].sum(), "org": g["org"].sum(),
-                     "frg_buy_names": top_names(g, "frg", 1), "frg_sell_names": top_names(g, "frg", -1),
-                     "org_buy_names": top_names(g, "org", 1), "org_sell_names": top_names(g, "org", -1)})
+                     **{f"{k}_names": as_text(v) for k, v in tops.items()},   # 텍스트 (LLM 프롬프트용)
+                     **{f"{k}_top": v for k, v in tops.items()}})            # 링크 생성용
     by_sector = pd.DataFrame(rows)
     return {"daily": daily_df, "by_sector": by_sector, "stocks": st, "cache": cache,
             "period": (daily_df["date"].min(), daily_df["date"].max()) if not daily_df.empty else (None, None)}
@@ -655,9 +661,18 @@ def pct_amt(x):
     return (f"{v:+,.0f}", color)
 
 
+# 종목명 클릭 시 열리는 네이버 종목 페이지. 옛 PC 주소(finance.naver.com/item/main.naver)는
+# 리다이렉트 뒤 빈 껍데기 페이지로 가서 메일 앱에서 종목이 안 열리는 경우가 있어 모바일 주소를 쓴다.
+STOCK_URL = "https://m.stock.naver.com/domestic/stock/{code}/total"
+LINK_STYLE = "color:#1a56db;text-decoration:underline"
+
+
+def stock_link(code, name):
+    return f"<a href='{STOCK_URL.format(code=code)}' style='{LINK_STYLE}'>{esc(name)}</a>"
+
+
 def naver_link(r):
-    return (f"<a href='https://finance.naver.com/item/main.naver?code={r['code']}' "
-            f"style='color:#222;text-decoration:none'>{r['name']}</a>")
+    return stock_link(r["code"], r["name"])
 
 
 BASE_COLS = [
@@ -730,9 +745,11 @@ def make_report(df, latest, sec, comments=None):
                   ("주간 거래대금(억)", lambda r: f"{r['val_wk']/1e8:,.0f}"),
                   (f"외국인 {INVESTOR_DAYS}일(억)", lambda r: pct_amt(r["frg7"])),
                   (f"기관 {INVESTOR_DAYS}일(억)", lambda r: pct_amt(r["org7"]))]
-    sector_cols = lambda col, names: [("섹터", lambda r: esc(r["sector"])), ("종목수", lambda r: r["n"]),
-                                      ("순매수(억)", lambda r: pct_amt(r[col])),
-                                      ("주요 종목", lambda r: esc(r[names]))]
+    def top_links(lst):
+        return ", ".join(f"{stock_link(c, n)}({a/1e8:+,.0f}억)" for c, n, a in lst) or "-"
+    sector_cols = lambda col, key: [("섹터", lambda r: esc(r["sector"])), ("종목수", lambda r: r["n"]),
+                                    ("순매수(억)", lambda r: pct_amt(r[col])),
+                                    ("주요 종목", lambda r: top_links(r[key]))]
     stock_cols = lambda col: [("종목", naver_link), ("섹터", lambda r: esc(r["sector"])),
                               ("순매수(억)", lambda r: pct_amt(r[col]))]
     top10 = sec.get("top10")
@@ -748,10 +765,10 @@ def make_report(df, latest, sec, comments=None):
         flows_html = (sub(f"일별 시장 전체 순매수 ({p0:%m/%d}~{p1:%m/%d}, {INVESTOR_DAYS}일 합계 외국인 "
                           f"{dd['frg'].sum()/1e8:+,.0f}억 / 기관 {dd['org'].sum()/1e8:+,.0f}억)")
                       + fmt_table(dd, daily_cols)
-                      + sub(f"외국인 순매수 상위 섹터 {TOP_N_SECTORS}") + fmt_table(t["frg_buy"], sector_cols("frg", "frg_buy_names"))
-                      + sub(f"외국인 순매도 상위 섹터 {TOP_N_SECTORS}") + fmt_table(t["frg_sell"], sector_cols("frg", "frg_sell_names"))
-                      + sub(f"기관 순매수 상위 섹터 {TOP_N_SECTORS}") + fmt_table(t["org_buy"], sector_cols("org", "org_buy_names"))
-                      + sub(f"기관 순매도 상위 섹터 {TOP_N_SECTORS}") + fmt_table(t["org_sell"], sector_cols("org", "org_sell_names"))
+                      + sub(f"외국인 순매수 상위 섹터 {TOP_N_SECTORS}") + fmt_table(t["frg_buy"], sector_cols("frg", "frg_buy_top"))
+                      + sub(f"외국인 순매도 상위 섹터 {TOP_N_SECTORS}") + fmt_table(t["frg_sell"], sector_cols("frg", "frg_sell_top"))
+                      + sub(f"기관 순매수 상위 섹터 {TOP_N_SECTORS}") + fmt_table(t["org_buy"], sector_cols("org", "org_buy_top"))
+                      + sub(f"기관 순매도 상위 섹터 {TOP_N_SECTORS}") + fmt_table(t["org_sell"], sector_cols("org", "org_sell_top"))
                       + sub("외국인 순매수 상위 10종목") + fmt_table(t["st_frg_buy"], stock_cols("frg"))
                       + sub("외국인 순매도 상위 10종목") + fmt_table(t["st_frg_sell"], stock_cols("frg"))
                       + sub("기관 순매수 상위 10종목") + fmt_table(t["st_org_buy"], stock_cols("org"))
