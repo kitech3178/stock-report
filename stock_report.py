@@ -661,7 +661,9 @@ def pct_amt(x):
     return (f"{v:+,.0f}", color)
 
 
-STOCK_URL = "https://finance.naver.com/item/main.naver?code={code}"   # 종목명 클릭 시 열리는 네이버 종목 페이지
+# 종목명 클릭 시 열리는 네이버 종목 페이지. 옛 PC 주소(finance.naver.com/item/main.naver)는
+# 리다이렉트 뒤 빈 껍데기 페이지로 가서 메일 앱에서 종목이 안 열리는 경우가 있어 모바일 주소를 쓴다.
+STOCK_URL = "https://m.stock.naver.com/domestic/stock/{code}/total"
 LINK_STYLE = "color:#1a56db;text-decoration:underline"
 
 
