@@ -186,7 +186,7 @@ dqn:
   episodes: 1500
   observation: depth             # depth (CNN) | features (MLP)
   gamma: 0.99
-  n_step: 1                      # n-step 리턴 (1 = 표준 DQN, 3~5 로 실험해 보기)
+  n_step: 3                      # n-step 리턴 (1 = 표준 DQN). 3 이 더 안정적이었음
   lr: 0.0005
   batch_size: 64
   buffer_size: 30000

@@ -3,14 +3,14 @@
 <robot name="ur5_rg2">
   <link name="base_link">
     <inertial><origin xyz="0.000000 0.000000 0.030000" rpy="0.000000 0.000000 0.000000"/><mass value="4.0000"/><inertia ixx="0.006825" ixy="0" ixz="0" iyy="0.006825" iyz="0" izz="0.011250"/></inertial>
-    <visual><origin xyz="0.000000 0.000000 0.030000" rpy="0.000000 0.000000 0.000000"/><geometry><cylinder radius="0.075" length="0.06"/></geometry><material name="ur_blue"><color rgba="0.35 0.55 0.75 1"/></material></visual>
-    <collision><origin xyz="0.000000 0.000000 0.030000" rpy="0.000000 0.000000 0.000000"/><geometry><cylinder radius="0.075" length="0.06"/></geometry></collision>
+    <visual><origin xyz="0.000000 0.000000 0.031000" rpy="0.000000 0.000000 0.000000"/><geometry><cylinder radius="0.075" length="0.058"/></geometry><material name="ur_blue"><color rgba="0.35 0.55 0.75 1"/></material></visual>
+    <collision><origin xyz="0.000000 0.000000 0.031000" rpy="0.000000 0.000000 0.000000"/><geometry><cylinder radius="0.075" length="0.058"/></geometry></collision>
 
   </link>
   <link name="link_1">
-    <inertial><origin xyz="0.000000 0.000000 0.044580" rpy="0.000000 0.000000 0.000000"/><mass value="3.7000"/><inertia ixx="0.005781" ixy="0" ixz="0" iyy="0.005781" iyz="0" izz="0.006660"/></inertial>
-    <visual><origin xyz="0.000000 0.000000 0.044580" rpy="0.000000 0.000000 0.000000"/><geometry><cylinder radius="0.06" length="0.089159"/></geometry><material name="ur_blue"><color rgba="0.35 0.55 0.75 1"/></material></visual>
-    <collision><origin xyz="0.000000 0.000000 0.044580" rpy="0.000000 0.000000 0.000000"/><geometry><cylinder radius="0.06" length="0.089159"/></geometry></collision>
+    <inertial><origin xyz="0.000000 0.000000 0.075785" rpy="0.000000 0.000000 0.000000"/><mass value="3.7000"/><inertia ixx="0.004101" ixy="0" ixz="0" iyy="0.004101" iyz="0" izz="0.006660"/></inertial>
+    <visual><origin xyz="0.000000 0.000000 0.075785" rpy="0.000000 0.000000 0.000000"/><geometry><cylinder radius="0.06" length="0.026748"/></geometry><material name="ur_blue"><color rgba="0.35 0.55 0.75 1"/></material></visual>
+    <collision><origin xyz="0.000000 0.000000 0.075785" rpy="0.000000 0.000000 0.000000"/><geometry><cylinder radius="0.06" length="0.026748"/></geometry></collision>
 
   </link>
   <joint name="joint_1" type="revolute"><parent link="base_link"/><child link="link_1"/><origin xyz="0.000000 0.000000 0.000000" rpy="0.000000 0.000000 0.000000"/><axis xyz="0 0 1"/><limit lower="-6.2832" upper="6.2832" effort="150" velocity="3.14"/><dynamics damping="0.0" friction="0.0"/></joint>

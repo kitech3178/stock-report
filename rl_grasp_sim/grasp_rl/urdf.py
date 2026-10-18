@@ -75,7 +75,7 @@ def generate_urdf(cfg) -> str:
            '<robot name="ur5_rg2">',
            '  <link name="base_link">',
            _inertial(4.0, (0, 0, 0.03), I=_inertia_cyl(4.0, 0.075, 0.06)) +
-           _geom('<cylinder radius="0.075" length="0.06"/>', (0, 0, 0.03), (0, 0, 0), blue),
+           _geom('<cylinder radius="0.075" length="0.058"/>', (0, 0, 0.031), (0, 0, 0), blue),
            "  </link>"]
     parent = "base_link"
     for i in range(6):
@@ -85,7 +85,9 @@ def generate_urdf(cfg) -> str:
         body = ""
         segs = []
         if abs(d[i]) > 1e-6:
-            segs.append(((0, 0, 0), (0, 0, d[i])))
+            # link_1 starts above the base so it never touches the table top (z = 0)
+            z0 = min(0.065, 0.7 * d[i]) if i == 0 else 0.0
+            segs.append(((0, 0, z0), (0, 0, d[i])))
         if abs(a[i]) > 1e-6:
             segs.append(((0, 0, d[i]), (a[i], 0, d[i])))
         if not segs:

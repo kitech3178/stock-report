@@ -198,7 +198,7 @@ loss = Huber(Q_online(s_t, a_t) − y)
 | `buffer_size`, `learning_starts` | 30000, 1000 | 경험 리플레이 (depth는 uint8로 저장) |
 | `train_freq`, `gradient_steps` | 2, 1 | 몇 스텝마다 몇 번 업데이트 |
 | `target_update`, `tau`, `target_update_interval` | soft, 0.01, 1000 | 타깃 네트워크 갱신 |
-| `double_dqn`, `n_step`, `huber_loss`, `grad_clip` | true, 1, true, 10 | n_step>1 이면 n-step 리턴 |
+| `double_dqn`, `n_step`, `huber_loss`, `grad_clip` | true, 3, true, 10 | n_step=1 이 표준 DQN (README 6.2 스윕 참고) |
 | `epsilon_*` | 1.0 → 0.05, 800 에피소드 | |
 | `hidden`, `conv_channels` | [256,128], [16,32,32] | 네트워크 구조 |
 
