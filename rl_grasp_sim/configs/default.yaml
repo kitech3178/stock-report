@@ -184,7 +184,7 @@ qlearning:
 # ---------------------------------------------------------------------
 dqn:
   episodes: 1500
-  observation: depth             # depth (CNN) | features (MLP)
+  observation: features          # features (MLP) | depth (CNN, 원시 이미지 — 훨씬 많은 에피소드·GPU 필요)
   gamma: 0.99
   n_step: 3                      # n-step 리턴 (1 = 표준 DQN). 3 이 더 안정적이었음
   lr: 0.0005

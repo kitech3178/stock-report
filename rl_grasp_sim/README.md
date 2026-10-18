@@ -24,8 +24,8 @@ python scripts/evaluate.py --policy scripted --episodes 50   # 손으로 짠 정
 python scripts/play.py                   # 직접 행동을 입력하며 State/Reward 확인
 
 python scripts/train.py --algo qlearning                     # ~3분 (CPU)
-python scripts/train.py --algo dqn --set dqn.observation=features
-python scripts/compare.py --algos qlearning dqn_features dqn --seeds 0 1 2   # 리포트용 비교
+python scripts/train.py --algo dqn                           # 기본: 인식 특징 벡터 입력(MLP)
+python scripts/compare.py --algos qlearning dqn --seeds 0 1 2 # 리포트용 비교
 python scripts/visualize.py --algo qlearning --model results/compare/qlearning_seed0/q_table.npz
 ```
 
@@ -192,7 +192,7 @@ loss = Huber(Q_online(s_t, a_t) − y)
 ```
 | 파라미터 | 기본 | 설명 |
 |---|---|---|
-| `observation` | depth | `depth`(CNN, 원시 이미지) / `features`(MLP) |
+| `observation` | features | `features`(MLP, Q-learning과 같은 인식 특징) / `depth`(CNN, 원시 depth 이미지 — 6.5 참고) |
 | `episodes` | 1500 | |
 | `lr`, `batch_size` | 5e-4, 64 | Adam |
 | `buffer_size`, `learning_starts` | 30000, 1000 | 경험 리플레이 (depth는 uint8로 저장) |
@@ -211,7 +211,10 @@ loss = Huber(Q_online(s_t, a_t) − y)
 
 ### 6.1 기본 비교 (Q-learning vs DQN)
 ```bash
-python scripts/compare.py --algos qlearning dqn_features dqn --seeds 0 1 2 --name main
+python scripts/compare.py --algos qlearning dqn --seeds 0 1 2 --name main
+# 확장: 원시 depth 이미지를 CNN으로 (훨씬 느림, GPU 권장)
+python scripts/compare.py --algos qlearning dqn_features dqn_depth --seeds 0 --name depth \
+    --set dqn.episodes=5000
 ```
 `results/main/comparison.png` 에 (1) 에피소드별 성공률, (2) **환경 스텝 대비 성공률(표본 효율)**,
 (3) greedy 평가 성공률, (4) 셰이핑 제외 과제 return, (5) 에피소드 길이, (6) 실패 원인 분포가 그려지고,
@@ -253,6 +256,13 @@ python scripts/visualize.py --algo qlearning --model results/main/qlearning_seed
 python scripts/evaluate.py  --algo dqn --model results/main/dqn_seed0/dqn.pt --episodes 200
 ```
 GIF에는 3D 로봇 자세, 상면도(물체·손가락·작업영역), 손목 depth 이미지와 추정 특징이 함께 나옵니다.
+
+### 6.5 확장: 원시 depth 이미지를 CNN 으로 (`dqn.observation: depth`)
+Q-learning 과 기본 DQN 은 같은 인식 파이프라인(depth → 물체 분할 → 특징)을 거친 상태를 씁니다.
+`depth` 모드는 그 인식 단계까지 CNN이 스스로 배워야 하므로 훨씬 많은 경험이 필요합니다.
+개발 중 CPU로 1000 에피소드(약 1.2만 스텝)를 학습했을 때 greedy 성공률은 0% 였습니다 —
+"사람이 설계한 상태 표현 vs 끝단간(end-to-end) 학습" 의 표본 효율 차이를 보여주는 결과로 리포트에 쓸 수 있습니다.
+시도해 볼 것: 에피소드 5000+ (GPU), `dqn.n_step: 5`, `dqn.epsilon_decay_episodes` 증가, `camera.width/height` 축소.
 
 ---
 
