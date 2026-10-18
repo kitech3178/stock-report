@@ -1,0 +1,7 @@
+numpy>=1.24
+pyyaml>=6.0
+gymnasium>=0.29
+matplotlib>=3.7
+pillow>=9.0
+torch>=2.0        # DQN only
+pytest>=7.0       # tests only

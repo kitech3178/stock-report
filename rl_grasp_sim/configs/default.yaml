@@ -1,0 +1,237 @@
+# =====================================================================
+#  UR5 + OnRobot RG2 + 손목 Depth 카메라 — 강화학습 파지(grasp) 시뮬레이션
+#  모든 실험 파라미터는 이 파일 하나에서 바꾼다.
+#  명령줄에서 덮어쓰기:  --set reward.success=20 --set qlearning.alpha=0.2
+# =====================================================================
+
+experiment:
+  name: default
+  seed: 0
+  output_dir: results
+
+# ---------------------------------------------------------------------
+# 시뮬레이터 백엔드
+#   simple : 이 저장소에 들어 있는 물리 모델(numpy). 설치 없이 바로 동작, 빠름.
+#   isaac  : NVIDIA Isaac Sim (PhysX) 위에서 같은 MDP를 실행.
+# ---------------------------------------------------------------------
+backend: simple
+
+# ---------------------------------------------------------------------
+# 로봇: UR5 (표준 DH 파라미터, 단위 m / rad)
+# ---------------------------------------------------------------------
+robot:
+  dh:
+    d:     [0.089159, 0.0, 0.0, 0.10915, 0.09465, 0.0823]
+    a:     [0.0, -0.425, -0.39225, 0.0, 0.0, 0.0]
+    alpha: [1.5707963267948966, 0.0, 0.0, 1.5707963267948966, -1.5707963267948966, 0.0]
+  joint_limits: [[-6.2832, 6.2832], [-6.2832, 6.2832], [-3.1416, 3.1416],
+                 [-6.2832, 6.2832], [-6.2832, 6.2832], [-6.2832, 6.2832]]
+  max_joint_speed: 3.14          # rad/s (UR5 사양 180 deg/s)
+  link_masses: [3.7, 8.393, 2.275, 1.219, 1.219, 0.1879]   # kg (ur_description)
+  base_position: [0.0, 0.0, 0.0] # 로봇 베이스(테이블 위, 월드 원점)
+  ik_seed: [3.1416, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]  # 팔꿈치-위, 손목-아래 자세 초기값
+  ik_max_iters: 60
+  ik_tol_pos: 0.0005
+  ik_tol_rot: 0.002
+  execution_noise_std: 0.002     # 이동 명령 실행 오차 (m). 0이면 결정론적
+
+# ---------------------------------------------------------------------
+# 그리퍼: OnRobot RG2 (사양 기반 단순화 모델)
+# ---------------------------------------------------------------------
+gripper:
+  stroke: 0.110                  # 최대 개방 폭 0~110 mm
+  open_width: 0.100              # 접근할 때 벌려 두는 폭
+  force: 20.0                    # 파지력 3~40 N (힘 제어)
+  speed_range: [0.038, 0.127]    # 닫힘 속도 m/s (힘이 클수록 느리게 설정됨)
+  mass: 0.65                     # kg
+  tcp_offset: 0.200              # 플랜지 → 손가락 끝 중심(TCP) 거리
+  finger_thickness: 0.008        # 손가락(패드) 두께, 닫힘축 방향
+  finger_width: 0.020            # 손가락 폭, 닫힘축의 수직 방향
+  pad_length: 0.025              # 접촉 패드의 세로 길이
+  finger_length: 0.060           # 손가락 끝 → 그리퍼 몸체 하단
+  body_footprint: [0.036, 0.075] # 몸체 단면 (닫힘축, 수직축) m
+  friction: 0.8                  # 손가락 패드 마찰계수 (고무)
+  contact_patch_radius: 0.006    # 비틀림 마찰 계산용 접촉 패치 반경
+  min_contact_length: 0.006      # 이보다 적게 겹치면 접촉 실패
+  self_align_max_deg: 20.0       # 이 각도 이하의 yaw 오차는 손가락이 물체를 돌려 정렬
+
+# ---------------------------------------------------------------------
+# 손목(핸드) 장착 Depth 카메라 — Intel RealSense D405 급 (근거리용)
+# 카메라 위치는 TCP 좌표계 기준 (x: 닫힘축, y: 수직축, z: 아래/전방)
+# ---------------------------------------------------------------------
+camera:
+  width: 64
+  height: 48
+  hfov_deg: 87.0
+  near: 0.07                     # 최소 측정 거리 (D405 = 7 cm)
+  far: 0.70
+  mount_xyz: [0.0, 0.070, -0.120] # TCP 기준 장착 위치 (손끝보다 12 cm 위)
+  tilt_deg: 15.0                 # 손가락 쪽으로 기울인 각도 (x축 회전)
+  noise:
+    base_std: 0.0005             # m
+    quad_coeff: 0.004            # σ = base + k·z²  (스테레오 depth 오차 모델)
+    dropout: 0.01                # 무효(0) 픽셀 비율
+    quantization: 0.001          # 1 mm 양자화
+  seg_threshold: 0.006           # 테이블보다 6 mm 이상 높으면 물체로 분할
+  min_pixels: 6
+
+# ---------------------------------------------------------------------
+# 물체 (테이블 위에 무작위 배치)
+# ---------------------------------------------------------------------
+object:
+  shape: box                     # box | cylinder
+  size: [0.040, 0.070, 0.050]    # box: (x, y, z) m  /  cylinder: (지름, -, 높이)
+  size_jitter: 0.0               # 에피소드마다 각 치수 ±비율 랜덤
+  mass: 0.30                     # kg
+  mass_range: null               # 예: [0.1, 1.0] 이면 질량 랜덤화
+  friction: 0.6                  # 물체-손가락 정지마찰계수 μs
+  friction_range: [0.5, 0.7]     # null 이면 고정
+  kinetic_ratio: 0.8             # μk = ratio · μs
+  table_friction: 0.4
+  spawn_center: [0.45, 0.0]      # 로봇 베이스 기준 (m)
+  spawn_half_extent: [0.08, 0.08]
+  yaw_range_deg: [-90.0, 90.0]
+
+# ---------------------------------------------------------------------
+# 과제(MDP) 공통 설정
+# ---------------------------------------------------------------------
+task:
+  start_height: 0.22             # 시작 시 손가락 끝의 테이블 위 높이
+  start_xy_noise: 0.0            # 시작 위치 랜덤
+  workspace_half_extent: [0.16, 0.16]   # spawn_center 기준 TCP 이동 허용 범위
+  max_tcp_height: 0.35
+  target_grasp_depth: 0.025      # 물체 윗면에서 이만큼 아래를 잡는 것이 이상적
+  lift_height: 0.10
+  lift_max_speed: 0.10           # m/s
+  lift_accel: 2.0                # m/s^2 (클수록 미끄러지기 쉬움)
+  max_steps: 60
+
+# ---------------------------------------------------------------------
+# ACTION — 이산 행동 집합 (Q-learning / DQN 공통)
+#   x+/x-: 닫힘축 방향,  y+/y-: 수직 방향,  z-/z+: 하강/상승,
+#   yaw+/yaw-: 손목 회전,  grasp: 닫기 → 들어올리기 → 판정 (에피소드 종료)
+# ---------------------------------------------------------------------
+actions:
+  set: [x+, x-, y+, y-, z-, z+, yaw+, yaw-, grasp]
+  frame: tool                    # tool: 그리퍼 기준 이동 / world: 월드 기준
+  step_xy: 0.010                 # m
+  step_z: 0.030                  # m
+  step_yaw_deg: 15.0
+  yaw_limit_deg: 90.0
+
+# ---------------------------------------------------------------------
+# STATE — 관측 구성
+#   observation:
+#     discrete : 특징을 구간(bin)으로 나눈 정수 상태 → Q-learning
+#     features : 연속 특징 벡터 → DQN(MLP)
+#     depth    : depth 이미지 + 고유수용(proprio) 벡터 → DQN(CNN)
+#   source:
+#     perception   : depth 카메라 이미지에서 특징을 추정 (현실적)
+#     ground_truth : 시뮬레이터의 참값을 사용 (상한선 비교용)
+# ---------------------------------------------------------------------
+state:
+  source: perception
+  bins:                          # discrete 모드의 구간 경계
+    dx: [-0.050, -0.020, -0.006, 0.006, 0.020, 0.050]   # 닫힘축 오프셋 (m)
+    dy: [-0.050, -0.020, -0.006, 0.006, 0.020, 0.050]   # 수직축 오프셋 (m)
+    dz: [-0.035, -0.008, 0.025, 0.070, 0.130]           # 손끝 - 물체윗면 (m)
+    yaw: [-52.5, -22.5, -7.5, 7.5, 22.5, 52.5]          # 정렬 오차 (deg)
+  feature_scale: [0.1, 0.1, 0.1, 1.0, 1.0, 1.0, 0.3]   # features 정규화
+
+# ---------------------------------------------------------------------
+# REWARD
+# ---------------------------------------------------------------------
+reward:
+  step: -0.05                    # 매 스텝 시간 비용
+  success: 10.0                  # 들어올리기 성공
+  grasp_fail: -3.0               # 잡기 실패
+  collision: -2.0                # 테이블/물체 충돌 (이동 차단)
+  ik_fail: -1.0                  # 역기구학 해 없음
+  out_of_workspace: -1.0
+  terminate_on_collision: false
+  terminate_on_grasp_fail: true
+  shaping:                       # 퍼텐셜 기반 셰이핑 F = γΦ(s') − Φ(s)
+    enabled: true
+    scale: 1.0
+    gamma: 1.0                   # 1.0 권장. γ<1 이고 Φ≤0 이면 제자리 버티기에 −(1−γ)Φ>0 보너스가
+                                 # 생겨 '물체에서 멀리 떨어져 버티기' 가 유리해짐 (README 6.3)
+    w_xy: 20.0                   # Φ = −(w_xy·거리 + w_z·높이오차 + w_yaw·각도오차)
+    w_z: 10.0
+    w_yaw: 2.0                   # per rad
+    use_ground_truth: true       # 셰이핑은 참값 사용 (보상은 시뮬레이터가 주므로)
+    terminal_potential: keep     # keep: 종료 상태의 Φ 유지 (좋은 자세에서 잡도록 유도)
+                                 # zero: Φ(terminal)=0 (Ng 1999 이론상 최적정책 불변, 학습은 느림)
+
+# ---------------------------------------------------------------------
+# 알고리즘 1: 표 기반 Q-learning
+# ---------------------------------------------------------------------
+qlearning:
+  episodes: 4000
+  alpha: 0.2                     # 학습률(스텝 크기)
+  alpha_decay: none              # none | visit  (visit: α = 1/N(s,a)^ω, 하한 alpha_min)
+  alpha_omega: 0.6
+  alpha_min: 0.02
+  gamma: 0.99
+  epsilon_start: 1.0
+  epsilon_end: 0.05
+  epsilon_decay: exp             # exp | linear
+  epsilon_decay_episodes: 2500
+  q_init: 0.0                    # 낙관적 초기화 실험 시 양수
+  observation: discrete
+
+# ---------------------------------------------------------------------
+# 알고리즘 2: DQN (PyTorch)
+# ---------------------------------------------------------------------
+dqn:
+  episodes: 1500
+  observation: depth             # depth (CNN) | features (MLP)
+  gamma: 0.99
+  n_step: 1                      # n-step 리턴 (1 = 표준 DQN, 3~5 로 실험해 보기)
+  lr: 0.0005
+  batch_size: 64
+  buffer_size: 30000
+  learning_starts: 1000          # 이 스텝 수 이후 학습 시작
+  train_freq: 2                  # 몇 스텝마다 한 번 업데이트 (CPU면 2~4 권장)
+  gradient_steps: 1
+  target_update: soft            # soft | hard
+  tau: 0.01                      # soft 업데이트 계수
+  target_update_interval: 1000   # hard 업데이트 주기 (스텝)
+  double_dqn: true
+  huber_loss: true
+  grad_clip: 10.0
+  epsilon_start: 1.0
+  epsilon_end: 0.05
+  epsilon_decay: exp
+  epsilon_decay_episodes: 800
+  hidden: [256, 128]             # MLP/CNN 헤드 은닉층
+  conv_channels: [16, 32, 32]
+  device: auto                   # auto | cpu | cuda
+
+# ---------------------------------------------------------------------
+# 평가 / 로깅
+# ---------------------------------------------------------------------
+eval:
+  every: 100                     # N 에피소드마다 greedy 평가
+  episodes: 30
+  seed_offset: 100000            # 평가용 고정 시드 (학습과 분리)
+log:
+  print_every: 50
+  save_model: true
+
+# ---------------------------------------------------------------------
+# Isaac Sim 백엔드 설정 (backend: isaac 일 때만 사용)
+# ---------------------------------------------------------------------
+isaac:
+  headless: false
+  physics_dt: 0.008333           # 1/120 s
+  rendering_dt: 0.033333
+  urdf_path: assets/urdf/ur5_rg2.urdf   # scripts/make_urdf.py 로 config에서 생성
+  regenerate_urdf: true          # 실행 시 현재 config로 URDF를 다시 생성
+  arm_stiffness: 10000.0
+  arm_damping: 1000.0
+  finger_stiffness: 2000.0
+  finger_damping: 100.0
+  move_settle_steps: 240         # 한 번 이동에 최대 시뮬레이션 스텝
+  joint_tol: 0.003
+  render_steps_before_depth: 2
+  knock_threshold: 0.01          # 이동 후 물체가 이보다 많이 밀리면 충돌로 판정

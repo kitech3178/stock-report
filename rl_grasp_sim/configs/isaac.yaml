@@ -1,0 +1,8 @@
+# Isaac Sim 에서 실행할 때 덮어쓸 값 (configs/default.yaml 위에 병합)
+#   ~/isaacsim/python.sh scripts/evaluate.py --config configs/isaac.yaml --algo qlearning --model ...
+backend: isaac
+isaac:
+  headless: false
+camera:
+  noise:
+    dropout: 0.0          # RTX depth 는 이미 매끈하므로 dropout 은 끔 (원하면 켜기)
