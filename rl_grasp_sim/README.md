@@ -228,6 +228,21 @@ python scripts/compare.py --algos qlearning dqn_features dqn_depth --seeds 0 --n
   신경망은 "잡기는 늘 −3" 을 모든 상태로 일반화해 버려 성공을 늦게 발견할 수 있다.
 * **비용**: 스텝당 계산량, 메모리(표 18,531칸 vs 수만~수십만 가중치), 하이퍼파라미터 민감도.
 
+#### 참고 결과 (개발 중 CPU 실행, 시드 2개, 기본 설정)
+`python scripts/compare.py --algos qlearning dqn_features --seeds 0 1 --name sample`
+
+| 알고리즘 | 에피소드 | 환경 스텝 | 최종 greedy 성공률 | 80% 도달 에피소드 | 학습 시간 | 파라미터 |
+|---|---|---|---|---|---|---|
+| Q-learning | 4000 | 77k | **0.98 ± 0.02** | 800, 900 | ~3.5분 | 18,531 (표) |
+| DQN (features) | 1500 | 30k | 0.85 ± 0.15 | 1000, — | ~2.5분 | 36,105 (가중치) |
+
+![sample](docs/sample_results/comparison.png)
+
+* 두 방법 모두 학습되지만 **DQN은 시드 간 편차가 큼** (seed0 = 1.00, seed1 = 0.70 — seed1은 1000 에피소드까지 0%).
+* DQN은 초반에 에피소드가 길어지는 구간(≈300 에피소드)이 있음 — 성공을 보기 전 "잡기 = 항상 실패" 로 일반화해서 잡기를 피함.
+* 실패 원인: DQN은 `no_contact_height`(너무 높은 곳에서 잡기) 비율이 높음.
+* 같은 에피소드 수에서 DQN은 데이터당 더 많은 계산을 쓰고, Q-learning은 더 많은 환경 스텝(7.7만)을 썼음.
+
 ### 6.2 파라미터 스윕 예시
 ```bash
 python scripts/sweep.py --algo qlearning --param qlearning.alpha --values 0.05 0.2 0.5 --seeds 0 1
